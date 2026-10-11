@@ -1,0 +1,16 @@
+{
+    "name": "LanternLounge.PebbleDrop",
+    "rootNamespace": "LanternLounge.Games.PebbleDrop",
+    "references": [
+        "LanternLounge.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

@@ -1,0 +1,16 @@
+{
+    "name": "LanternLounge.PrismRush",
+    "rootNamespace": "LanternLounge.Games.PrismRush",
+    "references": [
+        "LanternLounge.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

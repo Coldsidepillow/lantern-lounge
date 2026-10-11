@@ -1,0 +1,9 @@
+# Render Blueprint: one free web service running the game server from the Dockerfile.
+services:
+  - type: web
+    name: lantern-lounge-server
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true

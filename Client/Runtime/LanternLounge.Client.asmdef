@@ -1,0 +1,25 @@
+{
+    "name": "LanternLounge.Client",
+    "rootNamespace": "LanternLounge.Client",
+    "references": [
+        "LanternLounge.Core",
+        "LanternLounge.PebbleDrop",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "LL_INPUT_SYSTEM"
+        }
+    ],
+    "noEngineReferences": false
+}

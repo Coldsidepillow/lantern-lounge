@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- The online game server. It uses the exact same rules as the Unity app
+       (the projects in ../DotNet compile the Shared/ folder). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>LanternLounge.Server</AssemblyName>
+    <RootNamespace>LanternLounge.Server</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../DotNet/Core/LanternLounge.Core.csproj" />
+    <ProjectReference Include="../DotNet/PebbleDrop/LanternLounge.PebbleDrop.csproj" />
+    <ProjectReference Include="../DotNet/Tidebound/LanternLounge.Tidebound.csproj" />
+    <ProjectReference Include="../DotNet/PrismRush/LanternLounge.PrismRush.csproj" />
+    <ProjectReference Include="../DotNet/TreehouseHoldem/LanternLounge.TreehouseHoldem.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+{
+  "name": "com.lanternlounge.shared",
+  "version": "0.5.0",
+  "displayName": "Lantern Lounge Shared Rules",
+  "description": "Engine-free game rules shared by the Unity client and the C# server: the game-module contract, registry, seeded random, and each game's rules.",
+  "unity": "6000.0",
+  "dependencies": {}
+}

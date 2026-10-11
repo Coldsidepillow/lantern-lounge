@@ -1,0 +1,8 @@
+{
+  "name": "com.lanternlounge.client",
+  "version": "0.1.0",
+  "displayName": "Lantern Lounge Client",
+  "description": "The Lantern Lounge app screens for Unity (UI Toolkit, built from code). Needs the Lantern Lounge Shared Rules package installed too.",
+  "unity": "6000.0",
+  "dependencies": {}
+}
