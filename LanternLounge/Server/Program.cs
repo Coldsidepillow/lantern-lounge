@@ -14,7 +14,16 @@ var app = builder.Build();
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(25) });
 
-app.MapGet("/", () => Results.Text("Lantern Lounge server is running. Apps connect to /ws."));
+// The website (wwwroot/index.html and friends): play every game online in a browser.
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        // Always fetch the newest page and scripts after a redeploy.
+        ctx.Context.Response.Headers["Cache-Control"] = "no-cache";
+    }
+});
 
 app.MapGet("/health", (RoomManager rooms) => Results.Json(new { ok = true, rooms = rooms.Count }));
 
