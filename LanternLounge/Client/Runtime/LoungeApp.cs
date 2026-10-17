@@ -1,3 +1,4 @@
+using LanternLounge.Client.Online;
 using LanternLounge.Client.Screens;
 using LanternLounge.Client.Ui;
 using LanternLounge.Core;
@@ -29,9 +30,13 @@ namespace LanternLounge.Client
 
         public GameRegistry Registry { get; private set; }
 
+        /// <summary>The connection to the online game server (idle until someone plays online).</summary>
+        internal OnlineSession Online { get; private set; }
+
         private void Awake()
         {
             Registry = GameCatalog.Create();
+            Online = new OnlineSession();
             EnsureEventSystem();
             Sfx.Init(gameObject);
 
@@ -59,6 +64,35 @@ namespace LanternLounge.Client
         private void Update()
         {
             UpdateScaleMatch();
+            Online?.Pump();
+        }
+
+        private void OnApplicationQuit()
+        {
+            Online?.Shutdown();
+        }
+
+        /// <summary>Create or join an online room for a game.</summary>
+        public void ShowOnline(string gameId)
+        {
+            string name = Registry.TryGetInfo(gameId, out var info) ? info.DisplayName : gameId;
+            Show(new OnlineScreen(this, Online, gameId, name).Build());
+        }
+
+        /// <summary>The online table for the room's game, once the host has started it.</summary>
+        public void ShowOnlineGame(string gameId)
+        {
+            switch (gameId)
+            {
+                case global::LanternLounge.Games.PebbleDrop.PebbleDropModule.GameId:
+                    Show(new PebbleDropScreen(this, Online).Build());
+                    break;
+                default:
+                    Debug.LogWarning($"Lantern Lounge: online play for {gameId} isn't in the app yet.");
+                    Online.Leave();
+                    ShowLounge();
+                    break;
+            }
         }
 
         public void ShowLounge()

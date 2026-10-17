@@ -12,6 +12,7 @@ A multi-game board and card game app built in Unity 6, with Tidebound as its fir
 | `Shared/Runtime/Games/PebbleDrop/` | Four-player Pebble Drop rules (16 × 12 board, Red/Yellow/Blue/Green), win and draw detection, and a bot. |
 | `Shared/Runtime/Games/Tidebound/` | Tidebound rules (deal, ask, dive, pods, game end), hidden-information views, and the Reef Bot. |
 | `Shared/Runtime/Games/PrismRush/` | Prism Rush rules (deck, matching, chains, Flip/Hop/Pulse/Prism, draw-one, reshuffle, stalemate), hidden-information views, and the Prism Pal bot. |
+| `Shared/Runtime/Games/HideSeek/` | Hide & Seek rules (website/server only): the random maze with dead ends, loops and secret rooms, real-time movement, hiding, grabbing, line-of-sight views, and a bot. |
 | `Shared/Runtime/Games/TreehouseHoldem/` | Treehouse Hold'em rules (kid-friendly Texas Hold'em with play-money coins): deck, hand evaluator, win-chance estimator, betting, prize piles and side piles, hidden-information views, and the computer friend. |
 | `Shared/Tests/Editor/` | NUnit tests for everything in `Shared/`. |
 | `Client/` | Unity package `com.lanternlounge.client`: the app's screens, built in code with UI Toolkit. |
@@ -34,6 +35,7 @@ Updating = replace the files in this folder; Unity picks up the changes.
 - Any two tides of the same creature pair up into a pod straight away, so each creature makes two pods.
 - Starting a tide with no cards? Draw one first.
 - When all 32 pods are claimed, the diver with the most pods wins. Ties share the win.
+- **Hard mode:** there is no chat log and there are no hints. Nothing records who asked whom for what, so watch the table and remember. You only see the result of your own ask and your own dives.
 
 ## Prism Rush rules
 
@@ -43,7 +45,7 @@ Updating = replace the files in this folder; Unity picks up the changes.
 - Chains: number cards with the same number can go down together (any colors). The last card sets the color.
 - Flip reverses the direction. Hop skips the next player. Pulse makes the next player draw 2, unless they answer with a Pulse of their own (it stacks: +4, +6...).
 - Prism plays on anything (except a Pulse you owe) and you pick the next color.
-- Can't or don't want to play? Draw one card. If it matches, you may play it straight away or keep it; otherwise your turn ends.
+- Can't or don't want to play? Keep drawing until you get a card you can play (it matches the color, the number or the action picture, or it is a Prism). Every card you draw stays in your hand. Then you may play that card straight away or keep it. If the deck runs out first, your turn ends.
 - One card left: "Last light!" First to empty their hand wins. If nobody can play or draw, the fewest cards wins.
 
 ## Pebble Drop rules
@@ -65,6 +67,17 @@ A kid-friendly Texas Hold'em for a classroom or family game night. Coins are pre
 - Best 5-card hand from your 2 cards plus the 5 shared cards wins the prize pile. Ties share it. A player who runs out of coins can only win the coins they matched.
 - After 8 rounds (or when only one player has coins), the most coins wins.
 - Optional Hints show your best hand, glow the cards that make it, and give a 1–5 star strength meter with friendly advice. The Rules button explains everything, with example cards for every hand.
+
+## Online play
+
+- The game server lives in `Server/` and runs on Render at `wss://lantern-lounge.onrender.com/ws` (see `Server/README.md`).
+- The app's connection code is in `Client/Runtime/Online/`. To point the app at a different server, change `OnlineSession.ServerUrl`.
+- **Website:** `https://lantern-lounge.onrender.com` plays all five games online in any browser: Tidebound, Prism Rush, Pebble Drop, Treehouse Hold'em and Hide & Seek. Invite links (`/#CODE`) open straight to the join screen, and refreshing the page puts you back in your seat.
+- **In the Unity app, works now:** Pebble Drop online. Create a room, share the 5-letter code, friends join from their own devices, the host starts, and bots fill empty seats. The app reconnects automatically after a short drop.
+- **Chat and switching games (website):** every game except Pebble Drop has a table chat, and the host can change the game from the waiting room, or with "Change game" during or after a match, without remaking the group. Everyone keeps their seat and the same room code. The Unity app does not have these yet.
+- **Hide & Seek (website only):** a real-time, 4-player maze game seen from above. One seeker (blindfolded for the first 30 seconds), three hiders. Players pick a Red Panda, Siamese Cat, Honey Badger or Brown Cat in the waiting room. Controls are a thumb stick plus one button (Hide / Come out / Grab); arrows or WASD and Space work on a keyboard. The seeker wins by catching every hider; hiders still free when the 2:30 seeking time ends win. The seeker role rotates on each rematch. The Unity app does not have this game.
+- **Next:** online tables for Tidebound, Prism Rush and Treehouse Hold'em in the Unity app. The server already supports all four.
+- **Free server note:** after 15 idle minutes the server sleeps. The first connection then takes up to a minute.
 
 ## Set up (once)
 

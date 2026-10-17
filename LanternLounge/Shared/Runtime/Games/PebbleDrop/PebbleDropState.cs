@@ -53,6 +53,38 @@ namespace LanternLounge.Games.PebbleDrop
             return new PebbleDropState(empty, firstSeat, firstSeat, 0, NoSeat, null, false, -1);
         }
 
+        /// <summary>
+        /// Rebuilds a board from a snapshot, e.g. one the online server sent. Checks every value,
+        /// so a bad snapshot throws instead of producing a broken board.
+        /// </summary>
+        public static PebbleDropState FromSnapshot(IReadOnlyList<int> cells, int firstSeat, int currentSeat, int moveCount,
+            int winner, IReadOnlyList<int> winningCells, bool isDraw, int lastCell)
+        {
+            if (cells == null || cells.Count != CellCount) throw new ArgumentException($"A board has {CellCount} cells.", nameof(cells));
+            var copy = new int[CellCount];
+            for (int i = 0; i < CellCount; i++)
+            {
+                int v = cells[i];
+                if (v != Empty && (v < 0 || v >= Players)) throw new ArgumentOutOfRangeException(nameof(cells));
+                copy[i] = v;
+            }
+            if (firstSeat < 0 || firstSeat >= Players) throw new ArgumentOutOfRangeException(nameof(firstSeat));
+            if (currentSeat != NoSeat && (currentSeat < 0 || currentSeat >= Players)) throw new ArgumentOutOfRangeException(nameof(currentSeat));
+            if (winner != NoSeat && (winner < 0 || winner >= Players)) throw new ArgumentOutOfRangeException(nameof(winner));
+            if (lastCell < -1 || lastCell >= CellCount) throw new ArgumentOutOfRangeException(nameof(lastCell));
+            int[] line = null;
+            if (winningCells != null && winningCells.Count > 0)
+            {
+                line = new int[winningCells.Count];
+                for (int i = 0; i < line.Length; i++)
+                {
+                    if (winningCells[i] < 0 || winningCells[i] >= CellCount) throw new ArgumentOutOfRangeException(nameof(winningCells));
+                    line[i] = winningCells[i];
+                }
+            }
+            return new PebbleDropState(copy, firstSeat, currentSeat, Math.Max(0, moveCount), winner, line, isDraw, lastCell);
+        }
+
         /// <summary>The seat that moved first this match (each rematch moves it on one seat).</summary>
         public int FirstSeat { get; }
 

@@ -1,5 +1,5 @@
 // Tidebound online: ask a friend for a creature you hold; pairs make pods; most pods wins.
-import { h, StoryLog } from "../ui.js";
+import { h } from "../ui.js";
 
 const CREATURES = [
   ["Brinekin", "🦀", "reef"], ["Pinsnap Shrimp", "🦐", "reef"], ["Glimmerjelly", "🪼", "drift"], ["Mistfin Wisp", "🫧", "drift"],
@@ -27,7 +27,7 @@ function create(area, api) {
   let target = -1, creature = -1;
   let waiting = false;
   let lastMatch = -1;
-  const story = new StoryLog(5);
+  let lastKey = null;
 
   function canAsk() { return view && room && room.status === "playing" && view.currentSeat === api.you && !waiting; }
 
@@ -40,27 +40,15 @@ function create(area, api) {
     draw();
   }
 
-  function describe(events) {
-    const lines = [];
+  // Hard mode: no running record of who asked whom, and no hints. The only feedback is the
+  // result of your own move. Everything else you have to watch, remember and work out yourself.
+  function ownResult(events) {
     for (const e of events || []) {
-      const who = api.seatName(e.seat);
-      switch (e.kind) {
-        case "asked":
-          lines.push(e.count > 0
-            ? `${who} asked ${api.seatName(e.targetSeat)} for ${nameOf(e.creature)}: got ${e.count}!`
-            : `${who} asked ${api.seatName(e.targetSeat)} for ${nameOf(e.creature)}. Nope! Dive!`);
-          break;
-        case "dove": lines.push(`${who} dove into the Current.`); break;
-        case "luckyDive": lines.push(`${who} found a ${nameOf(e.creature)}! Go again.`); break;
-        case "currentEmpty": lines.push(`The Current is empty, so the tide passes.`); break;
-        case "refilled": lines.push(`${who} had no cards and drew one.`); break;
-        case "noOneToAsk": lines.push(`Nobody else had cards, so ${who} drew one.`); break;
-        case "podFormed": lines.push(`${who} made a ${nameOf(e.creature)} pod! ${(CREATURES[e.creature] || [])[1] || ""}`); break;
-        case "gameOver": lines.push("Every pod is claimed!"); break;
-        default: break;
-      }
+      if (e.seat !== api.you) continue;
+      if (e.kind === "asked") return e.count > 0 ? `Got ${e.count}!` : "Nope! You dove.";
+      if (e.kind === "luckyDive") return `Found a ${nameOf(e.creature)}! Go again.`;
     }
-    return lines.reverse();
+    return "";
   }
 
   function draw() {
@@ -86,13 +74,10 @@ function create(area, api) {
         h("strong", "The Current"),
         h("div.muted", view.currentCount ? `${view.currentCount} cards to dive for` : "All gone!"))));
 
-    area.appendChild(story.render());
-
     if (mine) {
       area.appendChild(h("div.actions",
         h("div.muted", { style: { width: "100%", textAlign: "center" } },
-          target >= 0 && creature >= 0 ? `Ask ${api.seatName(target)} for a ${nameOf(creature)}?` :
-          creature < 0 ? "1. Tap a creature in your hand." : "2. Tap a friend at the top."),
+          target >= 0 && creature >= 0 ? `Ask ${api.seatName(target)} for a ${nameOf(creature)}?` : ""),
         h("button.btn.primary.tb-ask", { disabled: target < 0 || creature < 0, onclick: ask }, "Ask!")));
     }
 
@@ -121,9 +106,15 @@ function create(area, api) {
       if (!next) return;
       if (!view || next.turn !== view.turn || r.match !== lastMatch) waiting = false;
       lastMatch = r.match;
-      const fresh = story.add(`${r.match}:${next.turn}`, describe(next.lastEvents));
-      if (fresh && (next.lastEvents || []).some(e => e.kind === "podFormed" && e.seat === api.you)) api.sound.win();
-      else if (fresh) api.sound.card();
+      const key = `${r.match}:${next.turn}`;
+      const fresh = key !== lastKey;
+      lastKey = key;
+      if (fresh) {
+        const result = ownResult(next.lastEvents);
+        if (result) api.toast(result);
+        if ((next.lastEvents || []).some(e => e.kind === "podFormed" && e.seat === api.you)) api.sound.win();
+        else if (result) api.sound.card();
+      }
       view = next;
       draw();
     },

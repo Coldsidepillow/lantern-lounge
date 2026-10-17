@@ -8,7 +8,7 @@ namespace LanternLounge.Games.PrismRush
         /// <summary>Play one card, or a chain of number cards that all share the same number.</summary>
         Play,
 
-        /// <summary>Draw a card (or take the Pulse penalty).</summary>
+        /// <summary>Draw until you get a card you can play (or take the Pulse penalty).</summary>
         Draw,
 
         /// <summary>After drawing a card you could play, keep it instead and end your turn.</summary>
@@ -62,7 +62,7 @@ namespace LanternLounge.Games.PrismRush
         /// <summary>Seat played Cards; Color is the color now in play.</summary>
         Played,
 
-        /// <summary>Seat drew a card (Card hidden from others). Count = 1.</summary>
+        /// <summary>Seat drew Count cards, stopping at the first playable one (Card, hidden from others, is the last card drawn).</summary>
         Drew,
 
         /// <summary>Seat drew Count cards for a Pulse they could not answer.</summary>

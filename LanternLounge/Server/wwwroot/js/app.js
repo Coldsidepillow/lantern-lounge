@@ -5,8 +5,10 @@ import pebble from "./games/pebble.js";
 import tidebound from "./games/tidebound.js";
 import prism from "./games/prism.js";
 import holdem from "./games/holdem.js";
+import hideseek from "./games/hideseek.js";
+import { CHARACTERS, charCanvas } from "./games/chars.js";
 
-const GAMES = [tidebound, prism, pebble, holdem];
+const GAMES = [tidebound, prism, pebble, holdem, hideseek];
 const byId = Object.fromEntries(GAMES.map(g => [g.id, g]));
 const app = document.getElementById("app");
 const session = new Session();
@@ -18,6 +20,12 @@ let busy = false;            // waiting for the server after Create / Join
 let wakeTimer = null;
 let game = null;             // { def, controller, els } while a game page is showing
 let lastTurnSeat = null;
+
+// Table chat. The messages live in the session; this is only what the screen needs.
+let chatEls = null;          // { el, list, input, toggle, collapsible } while a chat panel is showing
+let chatOpen = false;        // is the collapsible chat on the game page open?
+let chatUnread = 0;          // messages that came in while it was closed
+let chatDraft = "";          // what you've typed but not sent, kept when the screen redraws
 
 function loadName() { try { return localStorage.getItem("ll.name") || ""; } catch (e) { return ""; } }
 function saveName(name) { try { localStorage.setItem("ll.name", name); } catch (e) { /* ignore */ } }
@@ -168,14 +176,17 @@ function renderLobby(room) {
         h("div.row",
           h("span.muted.grow", "Friends type this code, or open your invite link."),
           h("button.btn.small", { onclick: copy }, "Copy invite link"))),
+      gamePicker(room),
+      characterPicker(room),
       h("div.panel",
         h("div.label", { style: { marginBottom: "10px" } }, "Players"),
         h("div.seat-list", room.seats.map(s => h("div.seat-row",
-          dot(s.seat),
+          s.choice ? charCanvas(s.choice, 30) : dot(s.seat),
           h("strong.grow", s.isHuman ? s.name : h("span.muted", "Empty: a bot will play")),
           s.seat === room.you ? h("span.tag.you", "you") : null,
           s.isHost ? h("span.tag.host", "host") : null,
           s.isHuman && !s.connected ? h("span.tag.away", "reconnecting") : null)))),
+      buildChat(room, false) || h("div.muted", { style: { textAlign: "center" } }, `Chat is off in ${def ? def.name : "this game"}.`),
       room.you === room.hostSeat
         ? h("button.btn.primary", { onclick: () => { sound.tap(); session.start(); } }, "Start the game")
         : h("div.wake", h("div.spinner"), "Waiting for the host to start..."))
@@ -192,7 +203,8 @@ function enterGame(room) {
     seats: h("div.seats"),
     banner: h("div.turn-banner"),
     area: h("div.game-area"),
-    over: h("div")
+    over: h("div"),
+    change: h("button.btn.small", { onclick: changeGame }, "Change game")
   };
   const soundBtn = h("button.btn.small", { onclick: () => { setSoundOn(!isSoundOn()); soundBtn.textContent = isSoundOn() ? "Sound on" : "Sound off"; } },
     isSoundOn() ? "Sound on" : "Sound off");
@@ -201,11 +213,14 @@ function enterGame(room) {
       h("h2.grow", def.name),
       h("span.code", room.code),
       soundBtn,
+      els.change,
       h("button.btn.small.danger", { onclick: leave }, "Leave")),
-    els.seats, els.banner, els.area, els.over);
+    els.seats, els.banner, els.area, els.over, buildChat(room, true));
   app.replaceChildren(topbar(), page);
+  scrollChatToEnd();
   const api = {
     send: (move) => { if (!session.move(move)) toast("Reconnecting... try again in a moment."); },
+    sendQuiet: (move) => session.move(move),
     seatName: (seat) => seatName(session.room, seat),
     get you() { return session.seat; },
     toast, sound,
@@ -222,8 +237,9 @@ function updateGame(room) {
   controller.update(room);
 
   const playing = room.status === "playing";
+  els.change.style.display = room.you === room.hostSeat ? "" : "none";
   const toAct = new Set(room.seatsToAct || []);
-  els.seats.replaceChildren(...room.seats.map(s => {
+  const chips = room.seats.map(s => {
     const classes = [];
     if (playing && toAct.has(s.seat) && toAct.size === 1) classes.push("turn");
     if (room.result && room.result.over && (room.result.winningSeats || []).includes(s.seat)) classes.push("winner");
@@ -232,15 +248,25 @@ function updateGame(room) {
     const clickable = !!(controller.onSeat && controller.canPickSeat && controller.canPickSeat(s.seat));
     if (clickable) classes.push("clickable");
     const kind = s.seat === room.you ? "you" : s.isBot ? "bot" : !s.connected ? "away" : "";
-    return h("div.seat-chip", {
-      class: classes.join(" "), role: clickable ? "button" : null, tabindex: clickable ? 0 : null,
-      onclick: clickable ? () => controller.onSeat(s.seat) : null,
-      onkeydown: clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); controller.onSeat(s.seat); } } : null
+    return {
+      seat: s.seat, classes: classes.join(" "), clickable,
+      name: s.name || `Seat ${s.seat + 1}`,
+      info: [kind === "you" ? "You" : kind === "bot" ? "Bot" : kind === "away" ? "Away" : "Player",
+        controller.seatInfo ? " · " + controller.seatInfo(s.seat) : ""].join("")
+    };
+  });
+  // Real-time games send an update ten times a second: only redraw the player strip when it really changed.
+  const chipSig = JSON.stringify(chips);
+  if (chipSig !== game.chipSig) {
+    game.chipSig = chipSig;
+    els.seats.replaceChildren(...chips.map(c => h("div.seat-chip", {
+      class: c.classes, role: c.clickable ? "button" : null, tabindex: c.clickable ? 0 : null,
+      onclick: c.clickable ? () => controller.onSeat(c.seat) : null,
+      onkeydown: c.clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); controller.onSeat(c.seat); } } : null
     },
-      h("div.name", def.seatDot === false ? null : dot(s.seat), s.name || `Seat ${s.seat + 1}`),
-      h("div.info", [kind === "you" ? "You" : kind === "bot" ? "Bot" : kind === "away" ? "Away" : "Player",
-        controller.seatInfo ? " · " + controller.seatInfo(s.seat) : ""].join("")));
-  }));
+      h("div.name", controller.seatIcon ? controller.seatIcon(c.seat) : def.seatDot === false ? null : dot(c.seat), c.name),
+      h("div.info", c.info))));
+  }
 
   // Whose turn
   let bannerText = "", mine = false;
@@ -258,13 +284,17 @@ function updateGame(room) {
   lastTurnSeat = turnSeat;
 
   // Game over card
-  els.over.replaceChildren();
   if (room.status === "finished" && room.result) {
     const winners = room.result.winningSeats || [];
     const youWon = winners.includes(room.you);
-    const title = room.result.isDraw ? "It's a draw!" : youWon ? (winners.length > 1 ? "You share the win!" : "You win!") :
+    const custom = controller.resultTitle ? controller.resultTitle(room) : null;
+    const title = custom ? custom : room.result.isDraw ? "It's a draw!" : youWon ? (winners.length > 1 ? "You share the win!" : "You win!") :
       winners.length ? `${winners.map(s => seatName(room, s)).join(" & ")} wins!` : "Game over";
     const ranking = controller.ranking ? controller.ranking(room) : [];
+    const overSig = JSON.stringify([room.match, title, ranking, room.you === room.hostSeat]);
+    if (overSig !== game.overSig) {
+    game.overSig = overSig;
+    els.over.replaceChildren();
     els.over.appendChild(h("div.over-card",
       h("div.panel",
         h("h3", title),
@@ -272,11 +302,126 @@ function updateGame(room) {
         room.you === room.hostSeat
           ? h("button.btn.primary", { onclick: () => session.rematch() }, "Play again")
           : h("div.muted", "Waiting for the host to start another game..."),
+        room.you === room.hostSeat ? h("button.btn", { onclick: changeGame }, "Change game") : null,
         h("button.btn", { onclick: leave }, "Leave"))));
+    }
     if (!game.celebrated) { game.celebrated = true; if (youWon) sound.win(); }
   } else {
+    els.over.replaceChildren();
+    game.overSig = null;
     game.celebrated = false;
   }
+}
+
+// ---------- Changing the game without remaking the group ----------
+function gamePicker(room) {
+  const isHost = room.you === room.hostSeat;
+  return h("div.panel",
+    h("div.label", { style: { marginBottom: "10px" } }, "Game"),
+    h("div.game-picker", GAMES.map(def => h("button.btn.small", {
+      class: def.id === room.game ? "primary" : "",
+      disabled: !isHost && def.id !== room.game,
+      "aria-pressed": def.id === room.game ? "true" : "false",
+      onclick: () => { if (isHost && def.id !== room.game) { sound.tap(); session.setGame(def.id); } }
+    }, def.name))),
+    h("div.muted", { style: { marginTop: "10px", fontSize: "14px" } },
+      isHost ? "Pick any game. Everyone stays in this room with the same code." : "The host picks the game."));
+}
+
+// ---------- Picking a character (Hide & Seek) ----------
+function characterPicker(room) {
+  if (!room.choices || !room.choices.length) return null;
+  const mine = room.seats[room.you] && room.seats[room.you].choice;
+  return h("div.panel",
+    h("div.label", { style: { marginBottom: "10px" } }, "Pick your character"),
+    h("div.char-picker", room.choices.map(id => {
+      const info = CHARACTERS.find(c => c.id === id) || { id, name: id, blurb: "" };
+      const owner = room.seats.find(s => s.choice === id);
+      const taken = owner && owner.seat !== room.you;
+      return h("button.char-card", {
+        type: "button", class: (id === mine ? "picked " : "") + (taken ? "taken" : ""),
+        disabled: !!taken, "aria-pressed": id === mine ? "true" : "false",
+        onclick: () => { if (!taken && id !== mine) { sound.tap(); session.choose(id); } }
+      }, charCanvas(id, 64), h("strong", info.name),
+        h("span.muted", taken ? `${owner.name} is this one` : id === mine ? "You" : info.blurb)
+      );
+    })),
+    h("div.muted", { style: { marginTop: "10px", fontSize: "14px" } }, "Everyone picks a different one. Bots get whichever are left."));
+}
+
+/** Host: end the current game (or finished one) and go back to the waiting room to pick another. */
+function changeGame() {
+  const room = session.room;
+  if (!room || room.you !== room.hostSeat) return;
+  if (room.status === "playing" &&
+      !confirm("End this game and go back to the waiting room? Everyone stays in the room, and you can pick any game.")) return;
+  session.setGame(room.game);
+}
+
+// ---------- Table chat ----------
+/** The chat panel for a room, or null if this game has no chat. The lobby one is always open; the game page one folds away. */
+function buildChat(room, collapsible) {
+  if (!room.chatEnabled) { chatEls = null; return null; }
+  const input = h("input.field.chat-input", {
+    maxlength: 200, placeholder: "Say something...", autocomplete: "off", "aria-label": "Chat message", value: chatDraft
+  });
+  const send = () => {
+    const text = input.value.trim();
+    if (!text) return;
+    if (session.sendChat(text)) { input.value = ""; chatDraft = ""; }
+    else toast("Reconnecting... try again in a moment.");
+  };
+  input.addEventListener("input", () => { chatDraft = input.value; });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+
+  const list = h("div.chat-list", { role: "log", "aria-label": "Chat messages" });
+  const toggle = collapsible
+    ? h("button.chat-toggle", { type: "button", "aria-expanded": chatOpen ? "true" : "false", onclick: () => setChatOpen(!chatOpen) })
+    : h("div.chat-toggle.static", "Chat");
+  const el = h("section.chat", { class: !collapsible || chatOpen ? "open" : "" },
+    toggle,
+    h("div.chat-body", list, h("div.row.chat-send", h("div.grow", input), h("button.btn", { onclick: send }, "Send"))));
+  chatEls = { el, list, input, toggle, collapsible };
+  if (collapsible) updateChatToggle();
+  fillChatList();
+  return el;
+}
+
+function setChatOpen(open) {
+  chatOpen = open;
+  if (open) chatUnread = 0;
+  if (!chatEls) return;
+  chatEls.el.classList.toggle("open", open);
+  updateChatToggle();
+  if (open) { scrollChatToEnd(); chatEls.input.focus(); }
+}
+
+function updateChatToggle() {
+  if (!chatEls || !chatEls.collapsible) return;
+  chatEls.toggle.textContent = chatUnread > 0 ? `Chat · ${chatUnread} new` : "Chat";
+  chatEls.toggle.setAttribute("aria-expanded", chatOpen ? "true" : "false");
+  chatEls.toggle.classList.toggle("unread", chatUnread > 0);
+}
+
+function chatLine(m) {
+  return h("div.chat-line", { class: m.seat === session.seat ? "mine" : "" },
+    dot(m.seat),
+    h("strong", `${m.name || `Seat ${m.seat + 1}`}:`),
+    h("span.chat-text", m.text));
+}
+
+function fillChatList() {
+  if (!chatEls) return;
+  const { list } = chatEls;
+  const atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  list.replaceChildren(...(session.chat.length
+    ? session.chat.map(chatLine)
+    : [h("div.muted.chat-empty", "No messages yet. Say hi!")]));
+  if (atEnd) list.scrollTop = list.scrollHeight;
+}
+
+function scrollChatToEnd() {
+  if (chatEls) chatEls.list.scrollTop = chatEls.list.scrollHeight;
 }
 
 function destroyGame() {
@@ -292,11 +437,20 @@ function leave() {
 // ---------- Render ----------
 function render(prefillCode) {
   if (screen !== "game") destroyGame();
+  // The lobby is redrawn whenever anything changes; don't make someone lose their place while typing.
+  const typing = chatEls && document.activeElement === chatEls.input
+    ? { start: chatEls.input.selectionStart, end: chatEls.input.selectionEnd } : null;
+  chatEls = null;
   let nodes;
   if (screen === "lobby" && session.room) nodes = renderLobby(session.room);
   else if (screen === "start") nodes = renderStart(prefillCode);
   else nodes = renderHome();
   app.replaceChildren(...nodes.filter(Boolean));
+  scrollChatToEnd();
+  if (typing && chatEls) {
+    chatEls.input.focus();
+    try { chatEls.input.setSelectionRange(typing.start, typing.end); } catch (e) { /* not supported */ }
+  }
 }
 
 // ---------- Session events ----------
@@ -309,6 +463,14 @@ session.on("room", room => {
     enterGame(room);
   } else {
     updateGame(room);
+  }
+});
+
+session.on("chat", message => {
+  fillChatList();
+  if (message && chatEls && chatEls.collapsible && !chatOpen && message.seat !== session.seat) {
+    chatUnread++;
+    updateChatToggle();
   }
 });
 

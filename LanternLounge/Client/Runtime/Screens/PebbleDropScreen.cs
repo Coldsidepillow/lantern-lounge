@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LanternLounge.Client.Online;
 using LanternLounge.Client.Ui;
 using LanternLounge.Core;
 using LanternLounge.Games.PebbleDrop;
@@ -12,6 +13,8 @@ namespace LanternLounge.Client.Screens
     /// Four-player Pebble Drop on a 16 x 12 riverbed. Each seat (Red, Yellow, Blue, Green) can be
     /// a person or a bot; tap a player card to switch. All rules come from the shared
     /// PebbleDropModule; this class only draws, animates and forwards taps.
+    /// Online, the same screen plays through the server: your taps are sent as moves, and the
+    /// board the server sends back is what's drawn.
     /// </summary>
     internal sealed class PebbleDropScreen
     {
@@ -70,7 +73,18 @@ namespace LanternLounge.Client.Screens
         private VisualElement statusPebble;
         private Label statusLabel;
         private Button undoButton;
+        private Button newGameButton;
+        private Button resetButton;
+        private readonly Label[] seatNames = new Label[Seats];
         private Button hintsButton;
+
+        // Online play (null when playing on this device).
+        private readonly OnlineSession online;
+        private RoomSnapshot room;
+        private PebbleDropState onlineState;
+        private readonly Queue<PebbleDropState> incoming = new Queue<PebbleDropState>();
+        private bool awaitingServer;
+        private int onlineMatch = -1;
         private Button marksButton;
 
         /// <param name="humans">Seats 0..humans-1 start as people; the rest start as bots.</param>
@@ -86,9 +100,32 @@ namespace LanternLounge.Client.Screens
             marks = PlayerPrefs.GetInt(MarksKey, 1) == 1;
         }
 
-        private PebbleDropState State => match.State;
+        /// <summary>Plays online through the server, in the room the session is in.</summary>
+        public PebbleDropScreen(LoungeApp app, OnlineSession online)
+        {
+            this.app = app;
+            this.online = online;
+            random = new SeededRandom(1);
+            marks = PlayerPrefs.GetInt(MarksKey, 1) == 1;
+            room = online.Room;
+            onlineMatch = room?.Match ?? -1;
+            onlineState = ParseState(room) ?? module.NewBoard(0);
+            ApplySeats();
+        }
 
-        private static string NameOf(int seat) => PebbleDropModule.ColorNames[seat];
+        private bool IsOnline => online != null;
+
+        private PebbleDropState State => IsOnline ? onlineState : match.State;
+
+        private string NameOf(int seat)
+        {
+            if (IsOnline)
+            {
+                var info = room?.SeatAt(seat);
+                if (info != null && !string.IsNullOrEmpty(info.Name)) return info.Name;
+            }
+            return PebbleDropModule.ColorNames[seat];
+        }
 
         public VisualElement Build()
         {
@@ -108,7 +145,25 @@ namespace LanternLounge.Client.Screens
             Theme.Margin(help, 8, 6, 12, 6);
             screen.Add(help);
 
-            screen.RegisterCallback<DetachFromPanelEvent>(_ => StopTimers());
+            screen.RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                StopTimers();
+                if (IsOnline)
+                {
+                    online.RoomChanged -= OnRoom;
+                    online.Error -= OnOnlineError;
+                    online.StatusChanged -= OnOnlineStatus;
+                    online.Left -= OnLeftRoom;
+                }
+            });
+            if (IsOnline)
+            {
+                online.RoomChanged += OnRoom;
+                online.Error += OnOnlineError;
+                online.StatusChanged += OnOnlineStatus;
+                online.Left += OnLeftRoom;
+                help.text = $"Online room {room?.Code}. Tap a column on your turn. Connect four in any direction!";
+            }
             Refresh();
             NextStep();
             return screen;
@@ -183,6 +238,11 @@ namespace LanternLounge.Client.Screens
                 seatPebbles[s] = pebble;
                 card.Add(pebble);
                 var name = Theme.Label(NameOf(seat), 14, Text, bold: true);
+                name.style.whiteSpace = WhiteSpace.NoWrap;
+                name.style.overflow = Overflow.Hidden;
+                name.style.textOverflow = TextOverflow.Ellipsis;
+                name.style.maxWidth = 84;
+                seatNames[s] = name;
                 name.pickingMode = PickingMode.Ignore;
                 card.Add(name);
                 seatWins[s] = Theme.Label("", 11, Muted);
@@ -335,7 +395,8 @@ namespace LanternLounge.Client.Screens
         {
             var row = Theme.Row();
             Theme.Margin(row, 12, 0, 0, 0);
-            var newGame = Theme.PrimaryButton("New Game", NewGame);
+            var newGame = Theme.PrimaryButton(IsOnline ? "Play again" : "New Game", NewGame);
+            newGameButton = newGame;
             newGame.style.flexGrow = 2;
             newGame.style.flexBasis = 0;
             newGame.tooltip = "Clear the board and keep the score. The next player starts.";
@@ -346,7 +407,13 @@ namespace LanternLounge.Client.Screens
             undoButton.style.flexBasis = 0;
             Theme.Margin(undoButton, 0, 8, 0, 0);
             row.Add(undoButton);
-            var reset = Theme.SecondaryButton("Reset", ResetAll);
+            var reset = Theme.SecondaryButton(IsOnline ? "Leave" : "Reset", ResetAll);
+            resetButton = reset;
+            if (IsOnline)
+            {
+                undoButton.style.display = DisplayStyle.None;
+                newGame.tooltip = "The host can start a new game once this one ends.";
+            }
             reset.style.flexGrow = 1;
             reset.style.flexBasis = 0;
             reset.tooltip = "Clear the board and the score. Red starts.";
@@ -455,14 +522,16 @@ namespace LanternLounge.Client.Screens
             DrawHover();
         }
 
-        private bool PersonsTurn => !State.IsOver && !isBot[State.CurrentSeat];
+        private bool PersonsTurn => IsOnline
+            ? !State.IsOver && State.CurrentSeat == online.Seat && !awaitingServer
+            : !State.IsOver && !isBot[State.CurrentSeat];
 
         private void TryDrop(int column, bool byPerson)
         {
             if (busy) return;
             if (State.IsOver)
             {
-                if (byPerson) Fx.Toast(screen, "Game over! Press New Game.", Theme.Amber, Theme.Ink, 1.2f);
+                if (byPerson) Fx.Toast(screen, IsOnline ? "Game over!" : "Game over! Press New Game.", Theme.Amber, Theme.Ink, 1.2f);
                 return;
             }
             if (byPerson && !PersonsTurn) return;
@@ -471,6 +540,20 @@ namespace LanternLounge.Client.Screens
                 Sfx.Play(Sound.Tap);
                 Shake(board);
                 Fx.Toast(screen, $"Column {column + 1} is full. Pick another!", SlateEdge, Text, 1.1f);
+                return;
+            }
+
+            if (IsOnline)
+            {
+                if (online.Status != OnlineStatus.Connected)
+                {
+                    Fx.Toast(screen, "Reconnecting... try again in a moment.", SlateEdge, Text, 1.2f);
+                    return;
+                }
+                // The server checks the move and sends the new board to everyone.
+                awaitingServer = true;
+                online.Move(new Dictionary<string, object> { { "column", column } });
+                DrawHover();
                 return;
             }
 
@@ -486,24 +569,142 @@ namespace LanternLounge.Client.Screens
             undoStack.Push(before);
             AnimateDrop(seat, row, column, () =>
             {
-                Sfx.Play(Sound.Drop);
-                Refresh();
-                Ripple(seat, row, column);
-                if (State.Winner != PebbleDropState.NoSeat) Celebrate();
-                else if (State.IsDraw)
-                {
-                    Sfx.Play(Sound.Pod);
-                    Fx.Toast(screen, "The board is full. It's a draw!", Muted, Theme.Ink, 1.6f);
-                }
+                Landed(seat, row, column);
                 NextStep();
             });
+        }
+
+        /// <summary>After a pebble lands: sound, ripple, and a win or draw if the game just ended.</summary>
+        private void Landed(int seat, int row, int column)
+        {
+            Sfx.Play(Sound.Drop);
+            Refresh();
+            Ripple(seat, row, column);
+            if (State.Winner != PebbleDropState.NoSeat) Celebrate();
+            else if (State.IsDraw)
+            {
+                Sfx.Play(Sound.Pod);
+                Fx.Toast(screen, "The board is full. It's a draw!", Muted, Theme.Ink, 1.6f);
+            }
+        }
+
+        // ---------- Online ----------
+
+        private void OnRoom(RoomSnapshot snapshot)
+        {
+            room = snapshot;
+            ApplySeats();
+            if (snapshot.InLobby)
+            {
+                app.ShowOnline(PebbleDropModule.GameId);
+                return;
+            }
+            var next = ParseState(snapshot);
+            if (next != null)
+            {
+                if (snapshot.Match != onlineMatch)
+                {
+                    // The host started a new game (even if a reconnect skipped its first board).
+                    onlineMatch = snapshot.Match;
+                    incoming.Clear();
+                    StopWinPulse();
+                    scored = false;
+                    awaitingServer = false;
+                    onlineState = next;
+                    Refresh();
+                    Fx.Toast(screen, $"New game! {NameOf(Math.Max(0, next.CurrentSeat))} goes first.", SeatColors[Math.Max(0, next.CurrentSeat)], Theme.Ink, 1.1f);
+                    return;
+                }
+                incoming.Enqueue(next);
+            }
+            ProcessIncoming();
+        }
+
+        /// <summary>Shows boards from the server one at a time, animating each new pebble.</summary>
+        private void ProcessIncoming()
+        {
+            while (!busy && incoming.Count > 0)
+            {
+                var next = incoming.Dequeue();
+                var previous = State;
+                // The same board sent again (someone joined or reconnected) doesn't answer our move.
+                if (next.MoveCount != previous.MoveCount || next.CurrentSeat != online.Seat) awaitingServer = false;
+                bool oneMore = next.MoveCount == previous.MoveCount + 1 && next.LastCell >= 0;
+                onlineState = next;
+                if (oneMore)
+                {
+                    int row = PebbleDropState.RowOf(next.LastCell);
+                    int column = PebbleDropState.ColumnOf(next.LastCell);
+                    int seat = next.CellAt(row, column);
+                    SetHover(column);
+                    AnimateDrop(seat, row, column, () =>
+                    {
+                        Landed(seat, row, column);
+                        ProcessIncoming();
+                    });
+                    return;
+                }
+                Refresh();
+                if (next.Winner != PebbleDropState.NoSeat && !scored) Celebrate();
+            }
+            Refresh();
+        }
+
+        private void ApplySeats()
+        {
+            if (room == null) return;
+            for (int s = 0; s < Seats; s++)
+            {
+                var info = room.SeatAt(s);
+                isBot[s] = info != null && info.IsBot;
+            }
+        }
+
+        private void OnOnlineError(string request, string code, string message)
+        {
+            if (request == "move") awaitingServer = false;
+            Fx.Toast(screen, message, SlateEdge, Text, 1.6f);
+            Refresh();
+        }
+
+        private void OnOnlineStatus(OnlineStatus status) => Refresh();
+
+        private void OnLeftRoom()
+        {
+            StopTimers();
+            // Removed by the server (not by pressing Leave): show why on the online screen.
+            if (!string.IsNullOrEmpty(online.LastLeaveReason)) app.ShowOnline(PebbleDropModule.GameId);
+            else app.ShowLounge();
+        }
+
+        private static PebbleDropState ParseState(RoomSnapshot snapshot)
+        {
+            var v = snapshot?.View;
+            if (v == null) return null;
+            try
+            {
+                return PebbleDropState.FromSnapshot(
+                    Json.Ints(Json.Arr(v, "cells")),
+                    Json.Int(v, "firstSeat"),
+                    Json.Int(v, "currentSeat", PebbleDropState.NoSeat),
+                    Json.Int(v, "moveCount"),
+                    Json.Int(v, "winner", PebbleDropState.NoSeat),
+                    Json.Ints(Json.Arr(v, "winningCells")),
+                    Json.Bool(v, "isDraw"),
+                    Json.Int(v, "lastCell", -1));
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("Pebble Drop online: couldn't read the board: " + e.Message);
+                return null;
+            }
         }
 
         private void NextStep()
         {
             pendingBot?.Pause();
             pendingBot = null;
-            if (State.IsOver || busy || !isBot[State.CurrentSeat]) return;
+            if (IsOnline || State.IsOver || busy || !isBot[State.CurrentSeat]) return;
             int seat = State.CurrentSeat;
             pendingBot = screen.schedule.Execute(() =>
             {
@@ -520,6 +721,13 @@ namespace LanternLounge.Client.Screens
         private void NewGame()
         {
             if (busy) return;
+            if (IsOnline)
+            {
+                if (!State.IsOver) Fx.Toast(screen, "Finish this game first!", SlateEdge, Text, 1.2f);
+                else if (room == null || !room.IsHost) Fx.Toast(screen, "The host starts the next game.", SlateEdge, Text, 1.2f);
+                else online.Rematch();
+                return;
+            }
             StopWinPulse();
             var next = State.MoveCount == 0 ? State : module.Rematch(State);
             match.Reset(next);
@@ -533,6 +741,11 @@ namespace LanternLounge.Client.Screens
 
         private void ResetAll()
         {
+            if (IsOnline)
+            {
+                LeaveTable();
+                return;
+            }
             if (busy) return;
             StopWinPulse();
             match.Reset(module.NewBoard(0));
@@ -548,7 +761,7 @@ namespace LanternLounge.Client.Screens
         /// <summary>Takes back moves until it's a person's turn again (bots' replies are undone too).</summary>
         private void Undo()
         {
-            if (busy || undoStack.Count == 0) return;
+            if (IsOnline || busy || undoStack.Count == 0) return;
             pendingBot?.Pause();
             pendingBot = null;
             bool anyPerson = false;
@@ -570,6 +783,7 @@ namespace LanternLounge.Client.Screens
 
         private void ToggleBot(int seat)
         {
+            if (IsOnline) return;
             isBot[seat] = !isBot[seat];
             Sfx.Play(Sound.Select);
             Fx.Pop(seatCards[seat], 0.08f);
@@ -613,6 +827,7 @@ namespace LanternLounge.Client.Screens
         private void LeaveTable()
         {
             StopTimers();
+            if (IsOnline && online.InRoom) online.Leave();
             app.ShowLounge();
         }
 
@@ -853,8 +1068,19 @@ namespace LanternLounge.Client.Screens
                 seatCards[s].style.translate = new StyleTranslate(new Translate(0, turn ? -3 : 0));
                 seatCards[s].style.opacity = state.Winner != PebbleDropState.NoSeat && !won ? 0.55f : 1f;
                 seatWins[s].text = $"{scores[s]} {(scores[s] == 1 ? "win" : "wins")}";
-                seatKind[s].text = isBot[s] ? "Bot" : "Person";
-                seatKind[s].style.color = isBot[s] ? Muted : Theme.Good;
+                seatNames[s].text = NameOf(s);
+                if (IsOnline)
+                {
+                    var info = room?.SeatAt(s);
+                    string kind = s == online.Seat ? "You" : isBot[s] ? "Bot" : info != null && !info.Connected ? "Away" : "Player";
+                    seatKind[s].text = kind;
+                    seatKind[s].style.color = kind == "You" ? Theme.Amber : kind == "Player" ? Theme.Good : Muted;
+                }
+                else
+                {
+                    seatKind[s].text = isBot[s] ? "Bot" : "Person";
+                    seatKind[s].style.color = isBot[s] ? Muted : Theme.Good;
+                }
                 if (turn) Fx.Pop(seatPebbles[s], 0.12f, 0.35f);
             }
 
@@ -874,10 +1100,13 @@ namespace LanternLounge.Client.Screens
             {
                 statusPebble.style.display = DisplayStyle.Flex;
                 statusPebble.Add(Pebble(state.CurrentSeat, 24, withMark: true));
-                statusLabel.text = isBot[state.CurrentSeat] ? $"{NameOf(state.CurrentSeat)} (bot) is thinking..." : $"{NameOf(state.CurrentSeat)}'s turn";
+                if (IsOnline && online.Status == OnlineStatus.Reconnecting) statusLabel.text = "Reconnecting...";
+                else if (IsOnline && state.CurrentSeat == online.Seat) statusLabel.text = awaitingServer ? "Dropping..." : "Your turn!";
+                else statusLabel.text = isBot[state.CurrentSeat] ? $"{NameOf(state.CurrentSeat)} (bot) is thinking..." : $"{NameOf(state.CurrentSeat)}'s turn";
             }
 
             Theme.SetButtonEnabled(undoButton, undoStack.Count > 0);
+            if (IsOnline) Theme.SetButtonEnabled(newGameButton, state.IsOver && room != null && room.IsHost);
             StyleToggle(hintsButton, hints);
             StyleToggle(marksButton, marks);
             DrawWinLine();

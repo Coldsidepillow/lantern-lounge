@@ -169,11 +169,12 @@ namespace LanternLounge.Tests
         [Test]
         public void FlipReversesTheDirection()
         {
-            // Lime 5 is the card seat 2 draws; it doesn't match Rose 7.
-            var state = FourPlayers(Num(Lime, 5));
+            // Seat 2 draws Lime 5 (no match for Rose 7), keeps drawing, and stops at Rose 5.
+            var state = FourPlayers(Num(Lime, 5), Num(Rose, 5));
             state = Play(state, 0, PrismMove.Play(Num(Rose, 5, 1)));
             state = Play(state, 1, PrismMove.Play(Num(Rose, 7)));
             state = Play(state, 2, PrismMove.Draw());
+            state = Play(state, 2, PrismMove.Keep());
             Assert.AreEqual(3, state.CurrentSeat);
             state = Play(state, 3, PrismMove.Play(Flip(Rose)));
 
@@ -184,10 +185,11 @@ namespace LanternLounge.Tests
         [Test]
         public void PulsesStackUntilSomeoneHasToDraw()
         {
-            var state = FourPlayers(Num(Lime, 5));
+            var state = FourPlayers(Num(Lime, 5), Num(Rose, 5));
             state = Play(state, 0, PrismMove.Play(Num(Rose, 5, 1)));
             state = Play(state, 1, PrismMove.Play(Num(Rose, 7)));
             state = Play(state, 2, PrismMove.Draw());
+            state = Play(state, 2, PrismMove.Keep());
             state = Play(state, 3, PrismMove.Play(Pulse(Rose)));
             Assert.AreEqual(2, state.PendingDraw);
             state = Play(state, 0, PrismMove.Play(Pulse(Gold)));
@@ -199,7 +201,7 @@ namespace LanternLounge.Tests
             state = Play(state, 2, PrismMove.Draw());
 
             Assert.AreEqual(0, state.PendingDraw);
-            Assert.AreEqual(14, state.HandCount(2));
+            Assert.AreEqual(15, state.HandCount(2));
             Assert.AreEqual(3, state.CurrentSeat);
             Assert.AreEqual(PrismEventKind.PulsePenalty, state.LastEvents[0].Kind);
             Assert.AreEqual(6, state.LastEvents[0].Count);
@@ -231,6 +233,30 @@ namespace LanternLounge.Tests
             Assert.AreEqual(2, state.CurrentSeat);
             Assert.AreEqual(PrismState.NoCard, state.DrawnCard);
             Assert.AreEqual(8, state.HandCount(1));
+        }
+
+        [Test]
+        public void DrawingKeepsGoingUntilYouGetAPlayableCard()
+        {
+            // Gold 5 goes down. Seat 1 has no Gold and no 5, so it draws: Lime 6 and Rose 6
+            // don't match, so it keeps drawing and stops at the second Gold 5.
+            var state = FourPlayers(Num(Lime, 6), Num(Rose, 6, 1), Num(Gold, 5, 1));
+            state = Play(state, 0, PrismMove.Play(Num(Gold, 5)));
+            state = Play(state, 1, PrismMove.Draw());
+
+            Assert.AreEqual(1, state.CurrentSeat, "Seat 1 may still play or keep the card that ended the draw.");
+            Assert.AreEqual(Num(Gold, 5, 1), state.DrawnCard);
+            Assert.AreEqual(10, state.HandCount(1), "Seat 1 keeps all three drawn cards.");
+            Assert.AreEqual(1, state.LastEvents.Count);
+            Assert.AreEqual(PrismEventKind.Drew, state.LastEvents[0].Kind);
+            Assert.AreEqual(3, state.LastEvents[0].Count);
+            Assert.AreEqual(PrismEvent.Hidden, module.ViewFor(state, 0).LastEvents[0].Card);
+            Assert.AreEqual(3, module.ViewFor(state, 0).LastEvents[0].Count);
+            Assert.AreEqual(84, TotalCards(state));
+
+            state = Play(state, 1, PrismMove.Keep());
+            Assert.AreEqual(2, state.CurrentSeat);
+            Assert.AreEqual(10, state.HandCount(1));
         }
 
         [Test]

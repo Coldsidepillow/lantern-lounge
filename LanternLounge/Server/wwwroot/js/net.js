@@ -11,12 +11,13 @@ export class Session {
     this.ws = null;
     this.status = "offline";      // offline | connecting | connected | reconnecting
     this.room = null;             // the last "room" message
+    this.chat = [];               // recent chat lines, oldest first
     this.seat = -1;
     this.code = null;
     this.token = null;
     this.reconnects = 0;
     this.leaving = false;
-    this.listeners = { room: [], error: [], status: [], left: [] };
+    this.listeners = { room: [], error: [], status: [], left: [], chat: [] };
     this.pingTimer = null;
     this.reconnectTimer = null;
   }
@@ -32,6 +33,11 @@ export class Session {
   start() { this.send({ type: "start" }); }
   rematch() { this.send({ type: "rematch" }); }
   move(move) { return this.send({ type: "move", move }); }
+  /** Host only: back to the waiting room with this game, keeping the same group. */
+  setGame(game) { return this.send({ type: "setgame", game }); }
+  /** Pick your character in the waiting room (Hide & Seek). */
+  choose(choice) { return this.send({ type: "choose", choice }); }
+  sendChat(text) { return this.send({ type: "chat", text }); }
 
   leave() {
     this.send({ type: "leave" });
@@ -118,6 +124,7 @@ export class Session {
     this.code = null;
     this.token = null;
     this.room = null;
+    this.chat = [];
     this.seat = -1;
     this.reconnects = 0;
     clearTimeout(this.reconnectTimer);
@@ -134,6 +141,17 @@ export class Session {
         this.seat = m.seat;
         this.reconnects = 0;
         try { sessionStorage.setItem(SAVED, JSON.stringify({ code: m.code, token: m.token })); } catch (e) { /* ignore */ }
+        break;
+      case "chatHistory":
+        if (!this.code) return;
+        this.chat = Array.isArray(m.messages) ? m.messages.slice(-100) : [];
+        this.emit("chat", null);
+        break;
+      case "chat":
+        if (!this.code || !m.message) return;
+        if (!this.chat.some(x => x.id === m.message.id)) this.chat.push(m.message);
+        if (this.chat.length > 100) this.chat.splice(0, this.chat.length - 100);
+        this.emit("chat", m.message);
         break;
       case "room":
         if (!this.code) return; // a message for a room we already left

@@ -14,8 +14,9 @@ namespace LanternLounge.Games.PrismRush
     /// Actions: Flip reverses direction (with two players it acts like Hop), Hop skips the next
     /// player, Pulse makes the next player draw 2 unless they answer with their own Pulse
     /// (which passes it on, growing by 2).
-    /// Can't play (or don't want to)? Draw one card. If it can be played you may play it right
-    /// away or keep it; otherwise your turn ends.
+    /// Can't play (or don't want to)? Draw, and keep drawing until you pull a card that can be
+    /// played (matching the color, the number, the action, or a Prism). You may then play that
+    /// card right away or keep it. If the deck runs out first, your turn ends.
     ///
     /// Options: "firstSeat" = a seat number, or "random" (default; uses the match seed).
     /// </summary>
@@ -224,8 +225,25 @@ namespace LanternLounge.Games.PrismRush
                 return;
             }
 
-            int drawn = t.DrawOne();
-            if (drawn < 0)
+            // Keep drawing until a card can be played. Every card drawn stays in the hand.
+            int drewCount = 0;
+            int drawn = -1;
+            bool playable = false;
+            while (true)
+            {
+                int card = t.DrawOne();
+                if (card < 0) break;
+                t.AddToHand(seat, card);
+                drewCount++;
+                drawn = card;
+                if (IsPlayable(card, t.Top, t.ActiveColor, 0))
+                {
+                    playable = true;
+                    break;
+                }
+            }
+
+            if (drewCount == 0)
             {
                 t.Events.Add(new PrismEvent(PrismEventKind.NothingToDraw, seat));
                 t.Passes++;
@@ -238,10 +256,10 @@ namespace LanternLounge.Games.PrismRush
                 return;
             }
 
-            t.AddToHand(seat, drawn);
             t.Passes = 0;
-            t.Events.Add(new PrismEvent(PrismEventKind.Drew, seat, 1, drawn));
-            if (IsPlayable(drawn, t.Top, t.ActiveColor, t.PendingDraw)) t.DrawnCard = drawn;
+            // One event for the whole draw: Count cards were taken, and Card is the last one.
+            t.Events.Add(new PrismEvent(PrismEventKind.Drew, seat, drewCount, drawn));
+            if (playable) t.DrawnCard = drawn;
             else t.Seat = t.Next(seat);
         }
 

@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="../DotNet/Core/LanternLounge.Core.csproj" />
     <ProjectReference Include="../DotNet/PebbleDrop/LanternLounge.PebbleDrop.csproj" />
+    <ProjectReference Include="../DotNet/HideSeek/LanternLounge.HideSeek.csproj" />
     <ProjectReference Include="../DotNet/Tidebound/LanternLounge.Tidebound.csproj" />
     <ProjectReference Include="../DotNet/PrismRush/LanternLounge.PrismRush.csproj" />
     <ProjectReference Include="../DotNet/TreehouseHoldem/LanternLounge.TreehouseHoldem.csproj" />

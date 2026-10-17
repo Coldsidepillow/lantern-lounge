@@ -288,3 +288,81 @@ h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.1; text-wrap
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---------- Table chat and the game picker ---------- */
+.game-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.game-picker .btn { flex: 1 1 140px; }
+.chat { margin-top: 14px; border-radius: 14px; background: rgba(0, 0, 0, .25); border: 1px solid var(--line); overflow: hidden; }
+.lobby .chat { margin-top: 0; background: var(--surface); border-radius: var(--radius); }
+.chat-toggle {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px;
+  background: none; border: 0; color: inherit; font: 800 16px var(--display); text-align: left;
+  min-height: 48px; padding: 10px 14px; cursor: pointer;
+}
+.chat-toggle.static { cursor: default; }
+.chat-toggle:not(.static)::after { content: "\25BE"; transition: transform .15s; }
+.chat.open .chat-toggle:not(.static)::after { transform: rotate(180deg); }
+.chat-toggle.unread { color: var(--amber); }
+.chat-toggle:focus-visible { outline: 3px solid var(--amber); outline-offset: -3px; }
+.chat-body { display: none; padding: 0 12px 12px; }
+.chat.open .chat-body { display: block; }
+.chat-list { height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 10px; overscroll-behavior: contain; }
+.chat-line { display: flex; gap: 6px; align-items: baseline; font-size: 15px; overflow-wrap: anywhere; }
+.chat-line .dot { flex: none; align-self: center; width: 14px; height: 14px; }
+.chat-line strong { flex: none; font-family: var(--display); }
+.chat-line.mine strong { color: var(--amber); }
+.chat-empty { font-size: 14px; }
+.chat-send { flex-wrap: nowrap; }
+.chat-send .field { min-height: 44px; font-size: 16px; }
+.theme-tree .chat { background: rgba(255, 255, 255, .6); border-color: rgba(43, 33, 64, .25); }
+.theme-tree .chat-line.mine strong { color: #C2410C; }
+.theme-tree .chat-toggle.unread { color: #C2410C; }
+.theme-tree .chat .field { background: #FFF8EA; color: #2B2140; border-color: #2B2140; }
+
+/* ---------- Hide & Seek ---------- */
+.art-hideseek { background: #231d3a; gap: 2px; }
+.theme-hideseek { background: #14101f; }
+.char-art { display: block; flex: none; }
+.seat-chip .name .char-art { width: 26px; height: 26px; }
+.seat-chip.caught { opacity: .55; }
+.seat-row .char-art { width: 30px; height: 30px; }
+
+.char-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (min-width: 640px) { .char-picker { grid-template-columns: repeat(4, 1fr); } }
+.char-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center;
+  background: var(--surface-2); border: 2px solid var(--line); border-radius: 16px; color: var(--text);
+  padding: 10px 8px; cursor: pointer; font: inherit; min-height: 44px;
+}
+.char-card strong { font: 800 16px var(--display); }
+.char-card .muted { font-size: 12px; line-height: 1.25; }
+.char-card.picked { border-color: var(--amber); box-shadow: 0 0 16px rgba(255, 181, 71, .3); }
+.char-card.taken { opacity: .5; cursor: default; }
+.char-card:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+
+.hs-wrap { position: relative; max-width: 640px; margin: 0 auto; border-radius: 16px; overflow: hidden; background: #0a0813; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hs-canvas { display: block; width: 100%; }
+.hs-hud { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; pointer-events: none; z-index: 2; }
+.hs-hud span { background: rgba(10, 8, 19, .7); border-radius: 999px; padding: 3px 10px; font: 800 13px var(--display); white-space: nowrap; }
+.hs-role.seeker { color: #ff9a9a; }
+.hs-role.hider { color: var(--good); }
+.hs-clock.hiding { color: var(--amber); }
+.hs-mini { position: absolute; left: 8px; bottom: 8px; z-index: 3; border-radius: 6px; border: 1px solid rgba(255,255,255,.25); background: rgba(10,8,19,.5); cursor: pointer; }
+.hs-mini.big { left: 50%; bottom: 50%; transform: translate(-50%, 50%); border-width: 2px; }
+.hs-overlay { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: flex-end; justify-content: center; z-index: 1; }
+.hs-note { margin: 0 8px 10px; padding: 6px 12px; border-radius: 12px; background: rgba(10, 8, 19, .78); font: 700 14px var(--display); text-align: center; }
+.hs-note.good { color: var(--good); }
+.hs-blind { position: absolute; inset: 0; background: #07050d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 16px; font: 700 18px var(--display); }
+.hs-blind .big { font-size: 64px; color: var(--amber); }
+.hs-blind .small { font-size: 14px; color: var(--muted); }
+
+.hs-controls { display: flex; align-items: center; justify-content: space-between; max-width: 640px; margin: 12px auto 0; padding: 0 8px; touch-action: none; }
+.hs-stick { position: relative; width: 148px; height: 148px; border-radius: 50%; background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.22); display: flex; align-items: center; justify-content: center; touch-action: none; }
+.hs-stick.off { opacity: .35; }
+.hs-knob { width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffd9a0, #ffb547); box-shadow: 0 3px 8px rgba(0,0,0,.4); pointer-events: none; }
+.hs-act { width: 116px; height: 116px; border-radius: 50%; border: 4px solid rgba(255,255,255,.3); background: #4a3f78; color: #fff; font: 800 22px var(--display); cursor: pointer; touch-action: none; position: relative; overflow: hidden; }
+.hs-act.hot { background: #2fb86b; border-color: #b4f0cb; box-shadow: 0 0 22px rgba(47,184,107,.6); }
+.hs-act.disabled { opacity: .4; }
+.hs-act.cooling::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--cd, 0) * 100%); background: rgba(0,0,0,.5); }
+.hs-act-label { position: relative; z-index: 1; pointer-events: none; }
+@media (max-height: 640px) { .hs-stick { width: 120px; height: 120px; } .hs-act { width: 96px; height: 96px; font-size: 19px; } }

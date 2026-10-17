@@ -16,8 +16,35 @@ public sealed class Seat
     public BotPlayer Bot { get; set; }
     public DateTime DisconnectedAt { get; set; }
 
+    /// <summary>The character this seat picked (games with a choice only), or null.</summary>
+    public string Choice { get; set; }
+
     public bool IsHuman => Token != null;
     public bool IsConnected => Connection != null && Connection.IsOpen;
+
+    private readonly Queue<DateTime> recentChats = new Queue<DateTime>();
+
+    /// <summary>
+    /// Chat rate limit: at most 5 messages in any 10 seconds, and not two within half a second.
+    /// Records the message when it is allowed.
+    /// </summary>
+    public bool TryUseChat(DateTime now)
+    {
+        while (recentChats.Count > 0 && now - recentChats.Peek() > TimeSpan.FromSeconds(10)) recentChats.Dequeue();
+        if (recentChats.Count >= 5) return false;
+        if (recentChats.Count > 0 && now - recentChats.Last() < TimeSpan.FromMilliseconds(500)) return false;
+        recentChats.Enqueue(now);
+        return true;
+    }
+}
+
+/// <summary>One line of table chat. Seat is the sender's seat number.</summary>
+public sealed class ChatMessage
+{
+    public int Id { get; init; }
+    public int Seat { get; init; }
+    public string Name { get; init; }
+    public string Text { get; init; }
 }
 
 public enum RoomStatus
@@ -40,6 +67,10 @@ public sealed class Room
     private readonly ILogger log;
     private int version; // bumps on every change, so stale timers do nothing
 
+    public const int MaxChatHistory = 50;
+    private readonly List<ChatMessage> chat = new List<ChatMessage>();
+    private int nextChatId = 1;
+
     public Room(string code, GameAdapter game, ILogger log)
     {
         Code = code;
@@ -50,7 +81,7 @@ public sealed class Room
     }
 
     public string Code { get; }
-    public GameAdapter Game { get; }
+    public GameAdapter Game { get; private set; }
     public Seat[] Seats { get; }
     public SemaphoreSlim Gate { get; } = new SemaphoreSlim(1, 1);
     public RoomStatus Status { get; private set; } = RoomStatus.Lobby;
@@ -75,6 +106,7 @@ public sealed class Room
         seat.IsBot = false;
         seat.Bot = null;
         if (!Seats.Any(s => s.IsHuman && s != seat)) HostSeat = seat.Index;
+        EnsureChoices();
         Touch();
         return seat;
     }
@@ -94,6 +126,7 @@ public sealed class Room
             old.Seat = null;
         }
         seat.Connection = connection;
+        if (seat.Index < Inputs.Length) Inputs[seat.Index] = null; // old controls from before the drop
         if (seat.IsBot && Status != RoomStatus.Lobby)
         {
             seat.IsBot = false;
@@ -111,6 +144,7 @@ public sealed class Room
         if (Status == RoomStatus.Lobby)
         {
             seat.Name = null;
+            seat.Choice = null;
         }
         else
         {
@@ -155,6 +189,92 @@ public sealed class Room
         return changed;
     }
 
+    // ---------- Chat and picking the game (call inside Gate) ----------
+
+    /// <summary>The recent chat lines, oldest first. The chat belongs to the room, so it carries over when the game changes.</summary>
+    public ChatMessage[] ChatHistory() => chat.ToArray();
+
+    /// <summary>
+    /// Adds a chat line. This deliberately does not call <see cref="Touch"/>: chatting must not
+    /// bump the version, or it would cancel the bots' and the turn timers.
+    /// </summary>
+    public ChatMessage AddChat(Seat seat, string text)
+    {
+        var message = new ChatMessage { Id = nextChatId++, Seat = seat.Index, Name = seat.Name, Text = text };
+        chat.Add(message);
+        while (chat.Count > MaxChatHistory) chat.RemoveAt(0);
+        LastActivity = DateTime.UtcNow;
+        return message;
+    }
+
+    /// <summary>
+    /// Sends the whole group back to the waiting room with a different game (or the same one again).
+    /// People keep their seats, tokens and the host; bots are removed until the next Start.
+    /// Returns false if the new game needs a different number of seats.
+    /// </summary>
+    public bool SwitchGame(GameAdapter game)
+    {
+        if (game.Seats != Seats.Length) return false;
+        string from = Game.GameId;
+        Game = game;
+        State = null;
+        Status = RoomStatus.Lobby;
+        ScheduledFor = -1;
+        foreach (var seat in Seats)
+        {
+            seat.Bot = null;
+            seat.IsBot = false;
+            seat.Choice = null;
+            if (!seat.IsHuman) seat.Name = null;
+        }
+        EnsureChoices();
+        Inputs = new object[Seats.Length];
+        log.LogInformation("Room {Code}: switched from {From} to {To}", Code, from, game.GameId);
+        Touch();
+        return true;
+    }
+
+    // ---------- Characters (call inside Gate) ----------
+
+    /// <summary>Real-time games: each seat's latest controls. People set these; bots are asked every tick.</summary>
+    public object[] Inputs { get; private set; } = new object[4];
+
+    /// <summary>True while this room's tick loop is running (only touched inside the Gate).</summary>
+    public bool TickerRunning { get; set; }
+
+    /// <summary>Gives every seated person a character if they have none, and takes characters away if the game has none.</summary>
+    public void EnsureChoices(bool includeBots = false)
+    {
+        var choices = Game.Choices;
+        if (choices.Count == 0)
+        {
+            foreach (var s in Seats) s.Choice = null;
+            return;
+        }
+        foreach (var s in Seats)
+        {
+            if (s.Choice != null && !choices.Contains(s.Choice)) s.Choice = null;
+        }
+        foreach (var s in Seats)
+        {
+            if (s.Choice != null || !(s.IsHuman || includeBots)) continue;
+            s.Choice = choices.FirstOrDefault(c => !Seats.Any(o => o.Choice == c));
+        }
+    }
+
+    /// <summary>A person picks a character in the waiting room. Returns an error message, or null on success.</summary>
+    public string Choose(Seat seat, string choice)
+    {
+        if (Status != RoomStatus.Lobby) return "You can pick a character in the waiting room.";
+        if (choice == null || !Game.Choices.Contains(choice)) return "That character isn't in this game.";
+        if (seat.Choice == choice) return null;
+        var owner = Seats.FirstOrDefault(s => s.Choice == choice);
+        if (owner != null) return $"{owner.Name} already picked that one.";
+        seat.Choice = choice;
+        Touch();
+        return null;
+    }
+
     // ---------- The match (call inside Gate) ----------
 
     public void Start()
@@ -169,7 +289,9 @@ public sealed class Room
                 seat.IsBot = true;
             }
         }
-        State = Game.Module.Setup(Game.Config(seed));
+        EnsureChoices(includeBots: true);
+        Inputs = new object[Seats.Length];
+        State = Game.Module.Setup(Game.Config(seed, State));
         Status = RoomStatus.Playing;
         MatchNumber++;
         foreach (var seat in Seats.Where(s => s.IsBot)) seat.Bot = Game.CreateBot(seat.Index, seed + (ulong)seat.Index * 7919UL);

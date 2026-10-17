@@ -155,6 +155,23 @@ namespace LanternLounge.Tests
         }
 
         [Test]
+        public void SnapshotRebuildsTheSameBoard()
+        {
+            var state = Play(0, 15, 15, 15, 1, 14, 14, 14, 2, 13, 13, 13, 3);
+            var cells = new int[PebbleDropState.CellCount];
+            for (int r = 0; r < PebbleDropState.Rows; r++)
+                for (int c = 0; c < PebbleDropState.Columns; c++)
+                    cells[PebbleDropState.Index(r, c)] = state.CellAt(r, c);
+            var copy = PebbleDropState.FromSnapshot(cells, state.FirstSeat, state.CurrentSeat, state.MoveCount,
+                state.Winner, state.WinningCells, state.IsDraw, state.LastCell);
+            Assert.AreEqual(state.Winner, copy.Winner);
+            Assert.AreEqual(state.MoveCount, copy.MoveCount);
+            CollectionAssert.AreEqual(state.WinningCells, copy.WinningCells);
+            Assert.AreEqual(Red, copy.CellAt(11, 0));
+            Assert.Throws<ArgumentException>(() => PebbleDropState.FromSnapshot(new int[3], 0, 0, 0, -1, null, false, -1));
+        }
+
+        [Test]
         public void TimeoutDropsInTheCentre()
         {
             Assert.IsTrue(module.TryGetTimeoutAction(NewGame(), Red, out var action));

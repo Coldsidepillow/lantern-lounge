@@ -4,6 +4,7 @@
     "references": [
         "LanternLounge.Core",
         "LanternLounge.PebbleDrop",
+        "LanternLounge.HideSeek",
         "LanternLounge.Tidebound",
         "LanternLounge.PrismRush",
         "LanternLounge.TreehouseHoldem",

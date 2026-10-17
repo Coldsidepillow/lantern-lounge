@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LanternLounge.Core;
+using LanternLounge.Games.HideSeek;
 using LanternLounge.Games.PebbleDrop;
 using LanternLounge.Games.PrismRush;
 using LanternLounge.Games.Tidebound;
@@ -20,7 +21,26 @@ public abstract class GameAdapter
     /// <summary>Seats at an online table. Empty seats are filled by bots when the game starts.</summary>
     public virtual int Seats => Module.Info.MaxPlayers;
 
+    /// <summary>Whether players can type to each other at this game's table. Pebble Drop turns it off.</summary>
+    public virtual bool ChatEnabled => true;
+
     public virtual MatchConfig Config(ulong seed) => new MatchConfig(Seats, seed);
+
+    /// <summary>The config for a new match, given the match that just ended (null for the first). Lets a game rotate roles on a rematch.</summary>
+    public virtual MatchConfig Config(ulong seed, object previousState) => Config(seed);
+
+    /// <summary>
+    /// Real-time games don't wait for turns. The server runs a clock instead: every <see cref="TickMs"/> it
+    /// gathers everyone's latest controls (people send them as "moves", bots choose them) and applies one tick.
+    /// </summary>
+    public virtual bool IsRealtime => false;
+    public virtual int TickMs => 100;
+
+    /// <summary>Builds the one action for a tick from every seat's latest controls (null where a seat has none).</summary>
+    public virtual object MakeTick(object[] inputs, int dtMs) => throw new NotSupportedException();
+
+    /// <summary>Characters (or colours) players pick in the waiting room. Empty if this game has no choice.</summary>
+    public virtual IReadOnlyList<string> Choices => Array.Empty<string>();
 
     /// <summary>Turns the "move" object a player sent into this game's action type.</summary>
     public abstract bool TryParseMove(JsonElement move, out object action, out string error);
@@ -67,7 +87,8 @@ public static class GameCatalog
         new PebbleDropAdapter(),
         new TideboundAdapter(),
         new PrismRushAdapter(),
-        new HoldemAdapter()
+        new HoldemAdapter(),
+        new HideSeekAdapter()
     }.ToDictionary(a => a.GameId);
 
     public static IEnumerable<GameAdapter> All => Adapters.Values;
@@ -86,6 +107,7 @@ public sealed class PebbleDropAdapter : GameAdapter
     private readonly PebbleDropModule module = new PebbleDropModule();
     public override string GameId => PebbleDropModule.GameId;
     public override IGameModule Module => module;
+    public override bool ChatEnabled => false;
 
     /// <summary>Move: { "column": 0-15 }</summary>
     public override bool TryParseMove(JsonElement move, out object action, out string error)
@@ -308,5 +330,74 @@ public sealed class HoldemAdapter : GameAdapter
         }
 
         public override object ChooseMove(object state) => bot.ChooseMove(module.ViewFor((HoldemState)state, seat));
+    }
+}
+
+// ---------------- Hide & Seek ----------------
+
+public sealed class HideSeekAdapter : GameAdapter
+{
+    private readonly HideSeekModule module = new HideSeekModule();
+    public override string GameId => HideSeekModule.GameId;
+    public override IGameModule Module => module;
+
+    public override bool IsRealtime => true;
+    public override int TickMs => HideSeekRules.TickMs;
+
+    /// <summary>Characters, in the order the picker shows them.</summary>
+    public override IReadOnlyList<string> Choices { get; } = new[] { "red-panda", "siamese-cat", "honey-badger", "brown-cat" };
+
+    /// <summary>After a round the next seat becomes the seeker; the first round picks one at random.</summary>
+    public override MatchConfig Config(ulong seed, object previousState)
+    {
+        if (previousState is HideSeekState previous)
+        {
+            var options = new Dictionary<string, string> { { "seeker", ((previous.Seeker + 1) % HideSeekRules.Players).ToString() } };
+            return new MatchConfig(Seats, seed, options);
+        }
+        return Config(seed);
+    }
+
+    /// <summary>Move (sent about ten times a second while a finger is down, or when the button is pressed): { "dx": -100..100, "dy": -100..100, "actSeq": number }</summary>
+    public override bool TryParseMove(JsonElement move, out object action, out string error)
+    {
+        action = null;
+        error = null;
+        if (move.ValueKind != JsonValueKind.Object ||
+            !move.TryGetProperty("dx", out var dx) || dx.ValueKind != JsonValueKind.Number ||
+            !move.TryGetProperty("dy", out var dy) || dy.ValueKind != JsonValueKind.Number ||
+            !TryGetInt(move, "actSeq", out int actSeq))
+        {
+            error = "A Hide & Seek move needs dx, dy and actSeq.";
+            return false;
+        }
+        action = new HideInput((int)Math.Round(dx.GetDouble()), (int)Math.Round(dy.GetDouble()), actSeq);
+        return true;
+    }
+
+    public override object MakeTick(object[] inputs, int dtMs)
+    {
+        var list = new HideInput[HideSeekRules.Players];
+        for (int i = 0; i < list.Length && i < inputs.Length; i++) list[i] = inputs[i] as HideInput;
+        return new HideSeekTick(dtMs, list);
+    }
+
+    public override object ViewFor(object state, int seat) => module.ViewFor((HideSeekState)state, seat);
+
+    public override BotPlayer CreateBot(int seat, ulong seed) => new Bot(seat, seed);
+
+    private sealed class Bot : BotPlayer
+    {
+        private readonly int seat;
+        private readonly HideSeekBot bot;
+
+        public Bot(int seat, ulong seed)
+        {
+            this.seat = seat;
+            bot = new HideSeekBot(seed);
+        }
+
+        /// <summary>For this game a bot's "move" is its controls for the next tick.</summary>
+        public override object ChooseMove(object state) => bot.ChooseInput((HideSeekState)state, seat);
     }
 }

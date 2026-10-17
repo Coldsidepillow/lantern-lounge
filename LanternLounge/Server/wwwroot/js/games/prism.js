@@ -149,7 +149,7 @@ function create(area, api) {
             ? `${who} chained ${e.cards.length} cards: ${e.cards.map(cardName).join(", ")}!`
             : `${who} played ${cardName(e.cards[0])}${cardInfo(e.cards[0]).kind === "prism" ? ` and chose ${COLORS[e.color].name}` : ""}.`);
           break;
-        case "drew": lines.push(`${who} drew a card.`); break;
+        case "drew": lines.push(e.count > 1 ? `${who} drew ${e.count} cards.` : `${who} drew a card.`); break;
         case "pulsePenalty": lines.push(`${who} took ${e.count} cards. Zap!`); break;
         case "kept": lines.push(`${who} kept the card.`); break;
         case "flipped": lines.push("Flip! Play changes direction."); break;
@@ -173,7 +173,7 @@ function create(area, api) {
     const active = view.activeColor >= 0 ? COLORS[view.activeColor] : COLORS[0];
 
     const deck = h("button.pr-deck", {
-      title: "Draw a card", disabled: !mine || view.drawnCard >= 0,
+      title: "Draw until you get a card you can play", disabled: !mine || view.drawnCard >= 0,
       onclick: () => { if (myTurn() && view.drawnCard < 0) send({ kind: "draw" }); }
     }, h("div.back"), h("span.count", String(view.drawPileCount)));
 

@@ -1,6 +1,6 @@
 using LanternLounge.Server;
 
-// Lantern Lounge online server: rooms with join codes for all four games.
+// Lantern Lounge online server: rooms with join codes for all five games.
 // Render (and most hosts) tell the app which port to use through the PORT variable.
 var builder = WebApplication.CreateBuilder(args);
 string port = Environment.GetEnvironmentVariable("PORT") ?? "10000";
@@ -28,7 +28,7 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapGet("/health", (RoomManager rooms) => Results.Json(new { ok = true, rooms = rooms.Count }));
 
 app.MapGet("/games", () => Results.Json(
-    GameCatalog.All.Select(g => new { id = g.GameId, name = g.Module.Info.DisplayName, seats = g.Seats }),
+    GameCatalog.All.Select(g => new { id = g.GameId, name = g.Module.Info.DisplayName, seats = g.Seats, chat = g.ChatEnabled, realtime = g.IsRealtime, choices = g.Choices }),
     Hub.Json));
 
 app.Map("/ws", async (HttpContext context, Hub hub) =>

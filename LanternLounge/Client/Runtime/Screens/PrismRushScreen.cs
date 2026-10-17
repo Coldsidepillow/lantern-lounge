@@ -347,7 +347,7 @@ namespace LanternLounge.Client.Screens
             ClearButton(deckButton);
             deckButton.style.width = 64;
             deckButton.style.height = 98;
-            deckButton.tooltip = "Draw deck: tap to draw a card";
+            deckButton.tooltip = "Draw deck: tap to draw until you get a card you can play";
             Theme.Radius(deckButton, 10);
             Theme.Border(deckButton, 2, PrismPalette.Clear);
             Theme.FocusRing(deckButton, PrismPalette.Clear, Cream);
@@ -809,8 +809,8 @@ namespace LanternLounge.Client.Screens
                         }
                         break;
                     case PrismEventKind.Drew:
-                        Say(e.Seat, e.Seat == You ? null : "I'll draw one.");
-                        at = FlyBacks(1, e.Seat, at);
+                        Say(e.Seat, e.Seat == You ? null : e.Count > 1 ? $"I drew {e.Count} cards!" : "I'll draw one.");
+                        at = FlyBacks(e.Count, e.Seat, at);
                         break;
                     case PrismEventKind.PulsePenalty:
                         Say(e.Seat, e.Seat == You ? null : $"Aww, +{e.Count}!");
@@ -1242,7 +1242,7 @@ namespace LanternLounge.Client.Screens
                     bannerTitle.text = "Your turn!";
                     bannerDetail.text = AnyPlayable(view)
                         ? "Match the color, number or picture. Same numbers chain!"
-                        : "Nothing matches. Tap the deck to draw one.";
+                        : "Nothing matches. Tap the deck to draw until you can play.";
                 }
             }
             else

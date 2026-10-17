@@ -18,7 +18,6 @@ namespace LanternLounge.Client.Screens
         private const int Players = 4;
         private const int You = 0;
         private const long BotDelayMs = 1500;
-        private const int LogLines = 4;
 
         private static readonly string[] Names = { "You", "Mira", "Theo", "Juno" };
 
@@ -42,23 +41,9 @@ namespace LanternLounge.Client.Screens
             Theme.Hex("#FFC233"), Theme.Hex("#B7A3FF"), Theme.Hex("#FF8A6B"), Theme.Hex("#6EDBC8")
         };
 
-        private readonly struct Line
-        {
-            public Line(int speaker, string text)
-            {
-                Speaker = speaker;
-                Text = text;
-            }
-
-            /// <summary>Seat that says it, or -1 for the narrator.</summary>
-            public int Speaker { get; }
-            public string Text { get; }
-        }
-
         private readonly LoungeApp app;
         private readonly TideboundModule module = new TideboundModule();
         private readonly LocalMatch<TideboundState, AskAction, TideboundView> match;
-        private readonly List<Line> log = new List<Line>();
         private readonly Dictionary<int, VisualElement> tablets = new Dictionary<int, VisualElement>();
         private TideboundBot[] bots;
         private HashSet<int> lastHand = new HashSet<int>();
@@ -72,7 +57,6 @@ namespace LanternLounge.Client.Screens
         private TideboundView displayView;
         private bool pendingDive;
         private bool diving;
-        private readonly List<Line> pendingLines = new List<Line>();
         private Button pile;
         private Label pileCount;
         private Label pileHint;
@@ -88,7 +72,6 @@ namespace LanternLounge.Client.Screens
         private readonly Button[] seatButtons = new Button[Players];
         private readonly Label[] seatInfo = new Label[Players];
         private readonly Label[] seatTag = new Label[Players];
-        private VisualElement logPanel;
         private Label promptLabel;
         private Button askButton;
         private Label handTitle;
@@ -141,7 +124,6 @@ namespace LanternLounge.Client.Screens
             content.Add(BuildBanner());
             content.Add(BuildSeats());
             content.Add(BuildPile());
-            content.Add(BuildLog());
             content.Add(BuildPrompt());
             content.Add(BuildHand());
 
@@ -157,7 +139,6 @@ namespace LanternLounge.Client.Screens
             Theme.Padding(overlay, 0, 20);
             screen.Add(overlay);
 
-            AddLog(-1, OpeningLine());
             Refresh();
             ScheduleBotsIfNeeded();
             return screen;
@@ -324,18 +305,6 @@ namespace LanternLounge.Client.Screens
             return back;
         }
 
-        private VisualElement BuildLog()
-        {
-            logPanel = Theme.Column();
-            logPanel.style.backgroundColor = Trench;
-            Theme.Border(logPanel, 2, Rim);
-            Theme.Radius(logPanel, 16);
-            Theme.Padding(logPanel, 8, 10);
-            Theme.Margin(logPanel, 10, 0, 0, 0);
-            logPanel.style.minHeight = 92;
-            return logPanel;
-        }
-
         private VisualElement BuildPrompt()
         {
             var card = Theme.Column();
@@ -427,12 +396,6 @@ namespace LanternLounge.Client.Screens
             if (CardsDrawnBy(after.LastEvents, You, diveOnly: true) > 0)
             {
                 // "Nope! Dive!" Hold the table as it was until you tap the Current yourself.
-                var lines = Describe(after.LastEvents);
-                for (int i = 0; i < lines.Count; i++)
-                {
-                    if (i < 2) AddLog(lines[i].Speaker, lines[i].Text);
-                    else pendingLines.Add(lines[i]);
-                }
                 displayView = before;
                 pendingDive = true;
                 Sfx.Play(Sound.Tap);
@@ -450,7 +413,7 @@ namespace LanternLounge.Client.Screens
             if (diving) return;
             if (!pendingDive)
             {
-                bannerDetail.text = "Ask a friend first. You dive when they say \"Nope!\"";
+                bannerDetail.text = " ";
                 Fx.Pop(pile, 0.05f);
                 return;
             }
@@ -465,8 +428,6 @@ namespace LanternLounge.Client.Screens
             {
                 diving = false;
                 displayView = null;
-                foreach (var line in pendingLines) AddLog(line.Speaker, line.Text);
-                pendingLines.Clear();
 
                 // Any other draws this move caused (refills after your dive), shown too.
                 int extra = CardsDrawnBy(after.LastEvents, You, diveOnly: false) - CardsDrawnBy(after.LastEvents, You, diveOnly: true);
@@ -487,7 +448,6 @@ namespace LanternLounge.Client.Screens
         {
             ObserveAll();
             var view = MyView;
-            foreach (var line in Describe(view.LastEvents)) AddLog(line.Speaker, line.Text);
 
             // Show cards flying out of the Current to whoever drew them.
             for (int s = 0; s < Players; s++)
@@ -603,7 +563,6 @@ namespace LanternLounge.Client.Screens
             ulong seed = (ulong)DateTime.UtcNow.Ticks;
             match.Reset(module.Rematch(match.State, seed));
             CreateBots(seed);
-            log.Clear();
             lastHand.Clear();
             selectedTarget = -1;
             selectedCreature = -1;
@@ -611,9 +570,7 @@ namespace LanternLounge.Client.Screens
             pendingDive = false;
             diving = false;
             displayView = null;
-            pendingLines.Clear();
             StopPileGlow();
-            AddLog(-1, OpeningLine());
             Sfx.Play(Sound.Tap);
             Refresh();
             ScheduleBotsIfNeeded();
@@ -641,10 +598,10 @@ namespace LanternLounge.Client.Screens
                     yourPods++;
                     podCreature = e.Creature;
                 }
-                if (e.Kind == TideEventKind.Asked && e.Count > 0) gave = true;
+                if (e.Kind == TideEventKind.Asked && e.Count > 0 && e.Seat == You) gave = true;
                 if (e.Kind == TideEventKind.Asked && e.Count == 0)
                 {
-                    if (e.Seat != You) anyDive = true;
+                    if (e.Seat == You) anyDive = true;
                 }
                 if (e.Kind == TideEventKind.LuckyDive && e.Seat == You) youFound = true;
             }
@@ -692,7 +649,6 @@ namespace LanternLounge.Client.Screens
             DrawPile(view);
             DrawBanner(view);
             DrawSeats(view);
-            DrawLog();
             DrawPrompt(view);
             DrawHand(view);
 
@@ -753,13 +709,13 @@ namespace LanternLounge.Client.Screens
             {
                 banner.style.backgroundColor = Gold;
                 bannerTitle.text = "Your tide!";
-                bannerDetail.text = "1. Tap a friend.  2. Tap a creature.  3. Ask!";
+                bannerDetail.text = " ";
             }
             else
             {
                 banner.style.backgroundColor = Mist;
                 bannerTitle.text = $"{Names[view.CurrentSeat]}'s tide";
-                bannerDetail.text = $"{Names[view.CurrentSeat]} is thinking...";
+                bannerDetail.text = " ";
             }
         }
 
@@ -783,44 +739,13 @@ namespace LanternLounge.Client.Screens
             }
         }
 
-        private void DrawLog()
-        {
-            logPanel.Clear();
-            for (int i = 0; i < log.Count; i++)
-            {
-                var line = log[i];
-                bool newest = i == 0;
-                var row = Theme.Row();
-                row.style.alignItems = Align.FlexStart;
-                Theme.Margin(row, i == 0 ? 0 : 4, 0, 0, 0);
-                row.style.opacity = newest ? 1f : 0.7f;
-
-                if (line.Speaker >= 0)
-                {
-                    var who = Theme.Label(Names[line.Speaker], newest ? 13 : 12, Hull, bold: true);
-                    who.style.backgroundColor = SeatColors[line.Speaker];
-                    Theme.Radius(who, 10);
-                    Theme.Padding(who, 2, 8);
-                    Theme.Margin(who, 0, 6, 0, 0);
-                    who.style.flexShrink = 0;
-                    row.Add(who);
-                }
-
-                var text = Theme.Label(line.Text, newest ? 14 : 12, line.Speaker >= 0 ? Foam : Mist, bold: newest && line.Speaker >= 0);
-                text.style.flexShrink = 1;
-                row.Add(text);
-                logPanel.Add(row);
-            }
-        }
-
         private void DrawPrompt(TideboundView view)
         {
             bool ready = !pendingDive && !diving && view.IsMyTide && selectedTarget >= 0 && selectedCreature >= 0;
             if (pendingDive || diving) promptLabel.text = "Tap the Current in the middle to dive!";
             else if (view.IsOver) promptLabel.text = "Game over!";
-            else if (!view.IsMyTide) promptLabel.text = $"Waiting for {Names[view.CurrentSeat]}...";
-            else if (selectedCreature < 0) promptLabel.text = "Tap a creature in your hand.";
-            else if (selectedTarget < 0) promptLabel.text = "Tap a friend to ask.";
+            else if (!view.IsMyTide) promptLabel.text = " ";
+            else if (selectedCreature < 0 || selectedTarget < 0) promptLabel.text = " ";
             else promptLabel.text = $"Ask {Names[selectedTarget]} for a {TideboundCards.Creature(selectedCreature).Name}?";
 
             Theme.SetButtonEnabled(askButton, ready);
@@ -1006,69 +931,6 @@ namespace LanternLounge.Client.Screens
         }
 
         // ---------- Words ----------
-
-        private string OpeningLine()
-        {
-            var view = MyView;
-            string first = view.CurrentSeat == You ? "You go" : $"{Names[view.CurrentSeat]} goes";
-            return $"Cards are dealt! Make pairs of the same creature. {first} first.";
-        }
-
-        private void AddLog(int speaker, string text)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            log.Insert(0, new Line(speaker, text));
-            while (log.Count > LogLines) log.RemoveAt(log.Count - 1);
-        }
-
-        /// <summary>Turns a move's events into a little conversation, oldest first.</summary>
-        private static List<Line> Describe(IReadOnlyList<TideEvent> events)
-        {
-            var lines = new List<Line>();
-            foreach (var e in events)
-            {
-                string who = e.Seat >= 0 ? Names[e.Seat] : "";
-                switch (e.Kind)
-                {
-                    case TideEventKind.Asked:
-                        string creature = TideboundCards.Creature(e.Creature).Name;
-                        string question = e.TargetSeat == You
-                            ? $"Do you have a {creature}?"
-                            : $"{Names[e.TargetSeat]}, do you have a {creature}?";
-                        lines.Add(new Line(e.Seat, question));
-                        string answer = e.Count > 1 ? $"Yes! Here, take {e.Count}!" : e.Count == 1 ? "Yes! Here you go!" : "Nope! Dive!";
-                        lines.Add(new Line(e.TargetSeat, answer));
-                        break;
-                    case TideEventKind.Dove:
-                        lines.Add(new Line(-1, e.Seat == You ? "You drew a card. Not this time!" : $"{who} drew a card."));
-                        break;
-                    case TideEventKind.LuckyDive:
-                        lines.Add(new Line(e.Seat, $"Found it! A {CardName(e.Card)}!"));
-                        break;
-                    case TideEventKind.CurrentEmpty:
-                        lines.Add(new Line(-1, "The Current is empty, so the tide passes."));
-                        break;
-                    case TideEventKind.Refilled:
-                        lines.Add(new Line(-1, e.Card == TideEvent.Hidden ? $"{who} had no cards, so they drew one." : $"You had no cards, so you drew a {CardName(e.Card)}."));
-                        break;
-                    case TideEventKind.NoOneToAsk:
-                        lines.Add(new Line(-1, $"Nobody else had cards, so {(e.Seat == You ? "you" : who)} drew one."));
-                        break;
-                    case TideEventKind.PodFormed:
-                        lines.Add(new Line(-1, $"{who} made a {TideboundCards.Creature(e.Creature).Name} pod!"));
-                        break;
-                    case TideEventKind.GameOver:
-                        lines.Add(new Line(-1, "Every pod is claimed!"));
-                        break;
-                }
-            }
-            return lines;
-        }
-
-        private static string CardName(int card)
-        {
-            return $"{TideboundCards.Creature(TideboundCards.CreatureOf(card)).Name} ({TideboundCards.TideOf(card)})";
-        }
 
         private static bool Contains(IReadOnlyList<int> list, int value)
         {

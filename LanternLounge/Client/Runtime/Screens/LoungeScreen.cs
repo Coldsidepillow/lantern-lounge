@@ -113,6 +113,13 @@ namespace LanternLounge.Client.Screens
                 buttons.Add(bot);
                 buttons.Add(pass);
                 body.Add(buttons);
+                var online = Theme.SecondaryButton("Play online with friends", () => app.ShowOnline(PebbleDropModule.GameId));
+                Theme.Margin(online, 8, 0, 0, 0);
+                online.style.borderTopColor = Theme.Good;
+                online.style.borderBottomColor = Theme.Good;
+                online.style.borderLeftColor = Theme.Good;
+                online.style.borderRightColor = Theme.Good;
+                body.Add(online);
             }
             else if (info.Status == GameStatus.Preview)
             {
